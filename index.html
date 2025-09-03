@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Интерактивная карта СПбГЭУ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* SVG стили */
+        .room, .stairs, .elevator { /* Объединил стили для всех интерактивных объектов */
+            fill: #e5e7eb;
+            stroke: #374151;
+            stroke-width: 2;
+            cursor: pointer;
+            transition: fill 0.3s ease;
+        }
+        
+        .room:hover, .stairs:hover, .elevator:hover { /* Объединил стили для всех интерактивных объектов */
+            fill: #93c5fd !important;
+        }
+        
+        .room.start, .stairs.start, .elevator.start { /* Объединил стили для всех интерактивных объектов */
+            fill: #86efac !important;
+        }
+        
+        .room.end, .stairs.end, .elevator.end { /* Объединил стили для всех интерактивных объектов */
+            fill: #fca5a5 !important;
+        }
+        
+        .stairs, .elevator {
+            fill: #fbbf24;
+            stroke: #d97706;
+        }
+        
+        .corridor {
+            fill: #f3f4f6;
+            stroke: #6b7280;
+            stroke-width: 1;
+        }
+        
+        .wall {
+            fill: none;
+            stroke: #1f2937;
+            stroke-width: 3;
+        }
+        
+        .door {
+            fill: #9ca3af;
+            stroke: #4b5563;
+            stroke-width: 1;
+        }
+        
+        .path {
+            fill: none;
+            stroke: #ef4444;
+            stroke-width: 4;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-dasharray: 5000;
+            stroke-dashoffset: 5000;
+            z-index: 1000;
+        }
+        
+        .path-animated {
+            animation: drawPath 3s ease-in-out forwards;
+        }
+        
+        @keyframes drawPath {
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+        
+        .room-label {
+            font-size: 12px;
+            fill: #374151;
+            text-anchor: middle;
+            pointer-events: none;
+            user-select: none;
+        }
+        
+        .floor-plan {
+            background: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen p-4">
+    <div class="max-w-7xl mx-auto">
+                <!-- Заголовок -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">СПбГЭУ</h1>
+            <p class="text-gray-600">Интерактивная карта корпуса</p>
+        </div>
+
+        <!-- Панель управления -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <!-- Выбор этажа -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Этаж</label>
+                    <div class="flex gap-2">
+                        <button onclick="showFloor(1)" id="floor-btn-1" class="floor-btn px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition">1 этаж</button>
+                        <button onclick="showFloor(2)" id="floor-btn-2" class="floor-btn px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">2 этаж</button>
+                        <button onclick="showFloor(3)" id="floor-btn-3" class="floor-btn px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">3 этаж</button>
+                    </div>
+                </div>
+                
+                <!-- Выбор маршрута -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Откуда</label>
+                    <select id="from-select" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Выберите точку старта</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Куда</label>
+                    <select id="to-select" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Выберите точку назначения</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- Кнопки действий -->
+            <div class="flex gap-3">
+                <button onclick="findPath()" class="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-medium">
+                    Проложить маршрут
+                </button>
+                <button onclick="resetPath()" class="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition font-medium">
+                    Сбросить
+                </button>
+            </div>
+            
+            <!-- Статус -->
+            <div id="status" class="mt-4 p-3 bg-blue-50 text-blue-700 rounded-lg hidden"></div>
+
+            <!-- НОВЫЙ КОД: Информационная панель объекта -->
+            <div id="room-info-overlay" class="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50 hidden">
+                <div class="bg-white rounded-lg shadow-xl p-6 w-96">
+                    <h3 id="room-info-title" class="text-xl font-bold text-gray-800 mb-4">Информация об объекте</h3>
+                    <p id="room-info-details" class="text-gray-600 mb-6"></p>
+                    <div class="flex justify-end gap-3">
+                        <button id="set-as-start-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-medium">
+                            Отсюда
+                        </button>
+                        <button id="set-as-end-btn" class="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition font-medium">
+                            Сюда
+                        </button>
+                        <button id="close-info-panel-btn" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition font-medium">
+                            Закрыть
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <!-- КОНЕЦ НОВОГО КОДА -->
+        </div>
+
+        <!-- Карта этажа -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <h2 id="floor-title" class="text-xl font-semibold text-gray-800 mb-4">1 этаж</h2>
+            
+            <!-- SVG контейнеры для каждого этажа -->
+            <div id="floor-1" class="floor-plan">
+                <svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Коридоры -->
+                    <rect class="corridor" x="100" y="250" width="600" height="100"/>
+                    <rect class="corridor" x="350" y="100" width="100" height="150"/>
+                    <rect class="corridor" x="350" y="350" width="100" height="150"/>
+                    
+                    <!-- Комнаты верхний ряд -->
+                    <rect id="room-101" class="room" data-name="Кабинет 101" data-floor="1" x="100" y="100" width="100" height="100"/>
+                    <text class="room-label" x="150" y="155">101</text>
+                    
+                    <rect id="room-102" class="room" data-name="Лаборатория физики" data-floor="1" x="220" y="100" width="100" height="100"/>
+                    <text class="room-label" x="270" y="155">Физика</text>
+                    
+                    <rect id="room-103" class="room" data-name="Конференц-зал" data-floor="1" x="480" y="100" width="100" height="100"/>
+                    <text class="room-label" x="530" y="155">Конференц</text>
+                    
+                    <rect id="room-104" class="room" data-name="Кабинет 104" data-floor="1" x="600" y="100" width="100" height="100"/>
+                    <text class="room-label" x="650" y="155">104</text>
+                    
+                    <!-- Комнаты нижний ряд -->
+                    <rect id="room-105" class="room" data-name="Библиотека" data-floor="1" x="100" y="400" width="100" height="100"/>
+                    <text class="room-label" x="150" y="455">Библиотека</text>
+                    
+                    <rect id="room-106" class="room" data-name="Столовая" data-floor="1" x="220" y="400" width="100" height="100"/>
+                    <text class="room-label" x="270" y="455">Столовая</text>
+                    
+                    <rect id="room-107" class="room" data-name="Санузел М" data-floor="1" x="480" y="400" width="50" height="100"/>
+                    <text class="room-label" x="505" y="455">WC М</text>
+                    
+                    <rect id="room-108" class="room" data-name="Санузел Ж" data-floor="1" x="530" y="400" width="50" height="100"/>
+                    <text class="room-label" x="555" y="455">WC Ж</text>
+                    
+                    <rect id="room-109" class="room" data-name="Администрация" data-floor="1" x="600" y="400" width="100" height="100"/>
+                    <text class="room-label" x="650" y="455">Админ</text>
+                    
+                    <!-- Лестница и лифт -->
+                    <rect id="stairs-1" class="stairs" data-name="Лестница" data-floor="1" x="50" y="275" width="40" height="50"/>
+                    <text class="room-label" x="70" y="305">Лестница</text>
+                    
+                    <rect id="elevator-1" class="elevator" data-name="Лифт" data-floor="1" x="710" y="275" width="40" height="50"/>
+                    <text class="room-label" x="730" y="305">Лифт</text>
+                    
+                    <!-- Путь для анимации -->
+                    <polyline id="path-1" class="path" points=""/>
+                </svg>
+            </div>
+            
+            <div id="floor-2" class="floor-plan hidden">
+                <svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Коридоры -->
+                    <rect class="corridor" x="100" y="250" width="600" height="100"/>
+                    <rect class="corridor" x="350" y="100" width="100" height="150"/>
+                    <rect class="corridor" x="350" y="350" width="100" height="150"/>
+                    
+                    <!-- Комнаты верхний ряд -->
+                    <rect id="room-201" class="room" data-name="Кабинет 201" data-floor="2" x="100" y="100" width="100" height="100"/>
+                    <text class="room-label" x="150" y="155">201</text>
+                    
+                    <rect id="room-202" class="room" data-name="Лаборатория химии" data-floor="2" x="220" y="100" width="100" height="100"/>
+                    <text class="room-label" x="270" y="155">Химия</text>
+                    
+                    <rect id="room-203" class="room" data-name="Серверная" data-floor="2" x="480" y="100" width="100" height="100"/>
+                    <text class="room-label" x="530" y="155">Серверная</text>
+                    
+                    <rect id="room-204" class="room" data-name="Кабинет 204" data-floor="2" x="600" y="100" width="100" height="100"/>
+                    <text class="room-label" x="650" y="155">204</text>
+                    
+                    <!-- Комнаты нижний ряд -->
+                    <rect id="room-205" class="room" data-name="Лекционный зал А" data-floor="2" x="100" y="400" width="100" height="100"/>
+                    <text class="room-label" x="150" y="455">Лекция А</text>
+                    
+                    <rect id="room-206" class="room" data-name="Лекционный зал Б" data-floor="2" x="220" y="400" width="100" height="100"/>
+                    <text class="room-label" x="270" y="455">Лекция Б</text>
+                    
+                    <rect id="room-207" class="room" data-name="Переговорная" data-floor="2" x="480" y="400" width="100" height="100"/>
+                    <text class="room-label" x="530" y="455">Переговорная</text>
+                    
+                    <rect id="room-208" class="room" data-name="Зона отдыха" data-floor="2" x="600" y="400" width="100" height="100"/>
+                    <text class="room-label" x="650" y="455">Отдых</text>
+                    
+                    <!-- Лестница и лифт -->
+                    <rect id="stairs-2" class="stairs" data-name="Лестница" data-floor="2" x="50" y="275" width="40" height="50"/>
+                    <text class="room-label" x="70" y="305">Лестница</text>
+                    
+                    <rect id="elevator-2" class="elevator" data-name="Лифт" data-floor="2" x="710" y="275" width="40" height="50"/>
+                    <text class="room-label" x="730" y="305">Лифт</text>
+                    
+                    <!-- Путь для анимации -->
+                    <polyline id="path-2" class="path" points=""/>
+                </svg>
+            </div>
+            
+            <div id="floor-3" class="floor-plan hidden">
+                <svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Коридоры -->
+                    <rect class="corridor" x="100" y="250" width="600" height="100"/>
+                    <rect class="corridor" x="350" y="100" width="100" height="150"/>
+                    <rect class="corridor" x="350" y="350" width="100" height="150"/>
+                    
+                    <!-- Комнаты верхний ряд -->
+                    <rect id="room-301" class="room" data-name="Директор" data-floor="3" x="100" y="100" width="100" height="100"/>
+                    <text class="room-label" x="150" y="155">Директор</text>
+                    
+                    <rect id="room-302" class="room" data-name="Зам. директора" data-floor="3" x="220" y="100" width="100" height="100"/>
+                    <text class="room-label" x="270" y="155">Зам. дир.</text>
+                    
+                    <rect id="room-303" class="room" data-name="Бухгалтерия" data-floor="3" x="480" y="100" width="100" height="100"/>
+                    <text class="room-label" x="530" y="155">Бухгалтерия</text>
+                    
+                    <rect id="room-304" class="room" data-name="HR отдел" data-floor="3" x="600" y="100" width="100" height="100"/>
+                    <text class="room-label" x="650" y="155">HR</text>
+                    
+                    <!-- Комнаты нижний ряд -->
+                    <rect id="room-305" class="room" data-name="Лаборатория ИИ" data-floor="3" x="100" y="400" width="100" height="100"/>
+                    <text class="room-label" x="150" y="455">Лаб. ИИ</text>
+                    
+                    <rect id="room-306" class="room" data-name="Квантовая лаборатория" data-floor="3" x="220" y="400" width="100" height="100"/>
+                    <text class="room-label" x="270" y="455">Квантовая</text>
+                    
+                    <rect id="room-307" class="room" data-name="Архив" data-floor="3" x="480" y="400" width="100" height="100"/>
+                    <text class="room-label" x="530" y="455">Архив</text>
+                    
+                    <rect id="room-308" class="room" data-name="Тренинг-центр" data-floor="3" x="600" y="400" width="100" height="100"/>
+                    <text class="room-label" x="650" y="455">Тренинг</text>
+                    
+                    <!-- Лестница и лифт -->
+                    <rect id="stairs-3" class="stairs" data-name="Лестница" data-floor="3" x="50" y="275" width="40" height="50"/>
+                    <text class="room-label" x="70" y="305">Лестница</text>
+                    
+                    <rect id="elevator-3" class="elevator" data-name="Лифт" data-floor="3" x="710" y="275" width="40" height="50"/>
+                    <text class="room-label" x="730" y="305">Лифт</text>
+                    
+                    <!-- Путь для анимации -->
+                    <polyline id="path-3" class="path" points=""/>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Граф навигации для всех этажей
+        const navigationGraph = {
+            // Этаж 1
+            'room-101': { x: 150, y: 200, floor: 1, connections: ['corridor-1-1'] },
+            'room-102': { x: 270, y: 200, floor: 1, connections: ['corridor-1-2'] },
+            'room-103': { x: 530, y: 200, floor: 1, connections: ['corridor-1-3'] },
+            'room-104': { x: 650, y: 200, floor: 1, connections: ['corridor-1-4'] },
+            'room-105': { x: 150, y: 400, floor: 1, connections: ['corridor-1-5'] },
+            'room-106': { x: 270, y: 400, floor: 1, connections: ['corridor-1-6'] },
+            'room-107': { x: 505, y: 400, floor: 1, connections: ['corridor-1-7'] },
+            'room-108': { x: 555, y: 400, floor: 1, connections: ['corridor-1-8'] },
+            'room-109': { x: 650, y: 400, floor: 1, connections: ['corridor-1-9'] },
+            'stairs-1': { x: 70, y: 300, floor: 1, connections: ['corridor-1-stairs', 'stairs-2'] },
+            'elevator-1': { x: 730, y: 300, floor: 1, connections: ['corridor-1-elevator', 'elevator-2'] },
+            
+            // Узлы коридора этаж 1
+            'corridor-1-1': { x: 150, y: 250, floor: 1, connections: ['room-101', 'corridor-1-2', 'corridor-1-stairs'] },
+            'corridor-1-2': { x: 270, y: 250, floor: 1, connections: ['room-102', 'corridor-1-1', 'corridor-1-center'] },
+            'corridor-1-center': { x: 400, y: 250, floor: 1, connections: ['corridor-1-2', 'corridor-1-3', 'corridor-1-5', 'corridor-1-6'] },
+            'corridor-1-3': { x: 530, y: 250, floor: 1, connections: ['room-103', 'corridor-1-center', 'corridor-1-4'] },
+            'corridor-1-4': { x: 650, y: 250, floor: 1, connections: ['room-104', 'corridor-1-3', 'corridor-1-elevator'] },
+            'corridor-1-5': { x: 150, y: 350, floor: 1, connections: ['room-105', 'corridor-1-6', 'corridor-1-center'] },
+            'corridor-1-6': { x: 270, y: 350, floor: 1, connections: ['room-106', 'corridor-1-5', 'corridor-1-center', 'corridor-1-7'] },
+            'corridor-1-7': { x: 505, y: 350, floor: 1, connections: ['room-107', 'corridor-1-6', 'corridor-1-8'] },
+            'corridor-1-8': { x: 555, y: 350, floor: 1, connections: ['room-108', 'corridor-1-7', 'corridor-1-9'] },
+            'corridor-1-9': { x: 650, y: 350, floor: 1, connections: ['room-109', 'corridor-1-8', 'corridor-1-elevator'] },
+            'corridor-1-stairs': { x: 100, y: 300, floor: 1, connections: ['stairs-1', 'corridor-1-1'] },
+            'corridor-1-elevator': { x: 700, y: 300, floor: 1, connections: ['elevator-1', 'corridor-1-4', 'corridor-1-9'] },
+            
+            // Этаж 2
+            'room-201': { x: 150, y: 200, floor: 2, connections: ['corridor-2-1'] },
+            'room-202': { x: 270, y: 200, floor: 2, connections: ['corridor-2-2'] },
+            'room-203': { x: 530, y: 200, floor: 2, connections: ['corridor-2-3'] },
+            'room-204': { x: 650, y: 200, floor: 2, connections: ['corridor-2-4'] },
+            'room-205': { x: 150, y: 400, floor: 2, connections: ['corridor-2-5'] },
+            'room-206': { x: 270, y: 400, floor: 2, connections: ['corridor-2-6'] },
+            'room-207': { x: 530, y: 400, floor: 2, connections: ['corridor-2-7'] },
+            'room-208': { x: 650, y: 400, floor: 2, connections: ['corridor-2-8'] },
+            'stairs-2': { x: 70, y: 300, floor: 2, connections: ['corridor-2-stairs', 'stairs-1', 'stairs-3'] },
+            'elevator-2': { x: 730, y: 300, floor: 2, connections: ['corridor-2-elevator', 'elevator-1', 'elevator-3'] },
+            
+            // Узлы коридора этаж 2
+            'corridor-2-1': { x: 150, y: 250, floor: 2, connections: ['room-201', 'corridor-2-2', 'corridor-2-stairs'] },
+            'corridor-2-2': { x: 270, y: 250, floor: 2, connections: ['room-202', 'corridor-2-1', 'corridor-2-center'] },
+            'corridor-2-center': { x: 400, y: 250, floor: 2, connections: ['corridor-2-2', 'corridor-2-3', 'corridor-2-5', 'corridor-2-6'] },
+            'corridor-2-3': { x: 530, y: 250, floor: 2, connections: ['room-203', 'corridor-2-center', 'corridor-2-4'] },
+            'corridor-2-4': { x: 650, y: 250, floor: 2, connections: ['room-204', 'corridor-2-3', 'corridor-2-elevator'] },
+            'corridor-2-5': { x: 150, y: 350, floor: 2, connections: ['room-205', 'corridor-2-6', 'corridor-2-center'] },
+            'corridor-2-6': { x: 270, y: 350, floor: 2, connections: ['room-206', 'corridor-2-5', 'corridor-2-center', 'corridor-2-7'] },
+            'corridor-2-7': { x: 530, y: 350, floor: 2, connections: ['room-207', 'corridor-2-6', 'corridor-2-8'] },
+            'corridor-2-8': { x: 650, y: 350, floor: 2, connections: ['room-208', 'corridor-2-7', 'corridor-2-elevator'] },
+            'corridor-2-stairs': { x: 100, y: 300, floor: 2, connections: ['stairs-2', 'corridor-2-1'] },
+            'corridor-2-elevator': { x: 700, y: 300, floor: 2, connections: ['elevator-2', 'corridor-2-4', 'corridor-2-8'] },
+            
+            // Этаж 3
+            'room-301': { x: 150, y: 200, floor: 3, connections: ['corridor-3-1'] },
+            'room-302': { x: 270, y: 200, floor: 3, connections: ['corridor-3-2'] },
+            'room-303': { x: 530, y: 200, floor: 3, connections: ['corridor-3-3'] },
+            'room-304': { x: 650, y: 200, floor: 3, connections: ['corridor-3-4'] },
+            'room-305': { x: 150, y: 400, floor: 3, connections: ['corridor-3-5'] },
+            'room-306': { x: 270, y: 400, floor: 3, connections: ['corridor-3-6'] },
+            'room-307': { x: 530, y: 400, floor: 3, connections: ['corridor-3-7'] },
+            'room-308': { x: 650, y: 400, floor: 3, connections: ['corridor-3-8'] },
+            'stairs-3': { x: 70, y: 300, floor: 3, connections: ['corridor-3-stairs', 'stairs-2'] },
+            'elevator-3': { x: 730, y: 300, floor: 3, connections: ['corridor-3-elevator', 'elevator-2'] },
+            
+            // Узлы коридора этаж 3
+            'corridor-3-1': { x: 150, y: 250, floor: 3, connections: ['room-301', 'corridor-3-2', 'corridor-3-stairs'] },
+            'corridor-3-2': { x: 270, y: 250, floor: 3, connections: ['room-302', 'corridor-3-1', 'corridor-3-center'] },
+            'corridor-3-center': { x: 400, y: 250, floor: 3, connections: ['corridor-3-2', 'corridor-3-3', 'corridor-3-5', 'corridor-3-6'] },
+            'corridor-3-3': { x: 530, y: 250, floor: 3, connections: ['room-303', 'corridor-3-center', 'corridor-3-4'] },
+            'corridor-3-4': { x: 650, y: 250, floor: 3, connections: ['room-304', 'corridor-3-3', 'corridor-3-elevator'] },
+            'corridor-3-5': { x: 150, y: 350, floor: 3, connections: ['room-305', 'corridor-3-6', 'corridor-3-center'] },
+            'corridor-3-6': { x: 270, y: 350, floor: 3, connections: ['room-306', 'corridor-3-5', 'corridor-3-center', 'corridor-3-7'] },
+            'corridor-3-7': { x: 530, y: 350, floor: 3, connections: ['room-307', 'corridor-3-6', 'corridor-3-8'] },
+            'corridor-3-8': { x: 650, y: 350, floor: 3, connections: ['room-308', 'corridor-3-7', 'corridor-3-elevator'] },
+            'corridor-3-stairs': { x: 100, y: 300, floor: 3, connections: ['stairs-3', 'corridor-3-1'] },
+            'corridor-3-elevator': { x: 700, y: 300, floor: 3, connections: ['elevator-3', 'corridor-3-4', 'corridor-3-8'] }
+        };
+
+        // Список всех локаций для выпадающих списков
+        const locations = [
+            { id: 'room-101', name: 'Кабинет 101', floor: 1 },
+            { id: 'room-102', name: 'Лаборатория физики', floor: 1 },
+            { id: 'room-103', name: 'Конференц-зал', floor: 1 },
+            { id: 'room-104', name: 'Кабинет 104', floor: 1 },
+            { id: 'room-105', name: 'Библиотека', floor: 1 },
+            { id: 'room-106', name: 'Столовая', floor: 1 },
+            { id: 'room-107', name: 'Санузел М', floor: 1 },
+            { id: 'room-108', name: 'Санузел Ж', floor: 1 },
+            { id: 'room-109', name: 'Администрация', floor: 1 },
+            { id: 'stairs-1', name: 'Лестница (1 эт.)', floor: 1 },
+            { id: 'elevator-1', name: 'Лифт (1 эт.)', floor: 1 },
+            { id: 'room-201', name: 'Кабинет 201', floor: 2 },
+            { id: 'room-202', name: 'Лаборатория химии', floor: 2 },
+            { id: 'room-203', name: 'Серверная', floor: 2 },
+            { id: 'room-204', name: 'Кабинет 204', floor: 2 },
+            { id: 'room-205', name: 'Лекционный зал А', floor: 2 },
+            { id: 'room-206', name: 'Лекционный зал Б', floor: 2 },
+            { id: 'room-207', name: 'Переговорная', floor: 2 },
+            { id: 'room-208', name: 'Зона отдыха', floor: 2 },
+            { id: 'stairs-2', name: 'Лестница (2 эт.)', floor: 2 },
+            { id: 'elevator-2', name: 'Лифт (2 эт.)', floor: 2 },
+            { id: 'room-301', name: 'Директор', floor: 3 },
+            { id: 'room-302', name: 'Зам. директора', floor: 3 },
+            { id: 'room-303', name: 'Бухгалтерия', floor: 3 },
+            { id: 'room-304', name: 'HR отдел', floor: 3 },
+            { id: 'room-305', name: 'Лаборатория ИИ', floor: 3 },
+            { id: 'room-306', name: 'Квантовая лаборатория', floor: 3 },
+            { id: 'room-307', name: 'Архив', floor: 3 },
+            { id: 'room-308', name: 'Тренинг-центр', floor: 3 },
+            { id: 'stairs-3', name: 'Лестница (3 эт.)', floor: 3 },
+            { id: 'elevator-3', name: 'Лифт (3 эт.)', floor: 3 },
+        ];
+
+        let currentFloor = 1;
+        let pathAnimation = null;
+        // НОВЫЙ КОД
+        let selectedRoomId = null; // Для хранения ID выбранного объекта
+
+        // Элементы информационной панели
+        const roomInfoOverlay = document.getElementById('room-info-overlay');
+        const roomInfoTitle = document.getElementById('room-info-title');
+        const roomInfoDetails = document.getElementById('room-info-details');
+        const setAsStartBtn = document.getElementById('set-as-start-btn');
+        const setAsEndBtn = document.getElementById('set-as-end-btn');
+        const closeInfoPanelBtn = document.getElementById('close-info-panel-btn');
+
+        const fromSelect = document.getElementById('from-select');
+        const toSelect = document.getElementById('to-select');
+        // КОНЕЦ НОВОГО КОДА
+
+        // Инициализация
+        function init() {
+            populateSelects();
+            setupRoomListeners();
+            // НОВЫЙ КОД
+            setupInfoPanelListeners();
+            // КОНЕЦ НОВОГО КОДА
+        }
+
+        // Заполнение выпадающих списков
+        function populateSelects() {
+            // Сортируем локации для удобного отображения в списке
+            const sortedLocations = [...locations].sort((a, b) => {
+                if (a.floor !== b.floor) {
+                    return a.floor - b.floor;
+                }
+                return a.name.localeCompare(b.name);
+            });
+
+            sortedLocations.forEach(loc => {
+                const option1 = new Option(`${loc.name} (${loc.floor} этаж)`, loc.id);
+                const option2 = new Option(`${loc.name} (${loc.floor} этаж)`, loc.id);
+                fromSelect.add(option1);
+                toSelect.add(option2);
+            });
+        }
+
+        // Установка слушателей для комнат
+        function setupRoomListeners() {
+            // ИЗМЕНЕНО: теперь слушатели применяются ко всем интерактивным объектам (комнаты, лестницы, лифты)
+            document.querySelectorAll('.room, .stairs, .elevator').forEach(item => {
+                item.addEventListener('click', function() {
+                    const itemId = this.id;
+                    const itemName = this.dataset.name; // Получаем имя из data-name атрибута
+                    const itemFloor = parseInt(this.dataset.floor); // Получаем этаж из data-floor атрибута
+                    
+                    if (itemId && itemName && !isNaN(itemFloor)) {
+                        showRoomInfoPanel(itemId, itemName, itemFloor);
+                    }
+                });
+            });
+        }
+
+        // НОВЫЙ КОД: Установка слушателей для кнопок информационной панели
+        function setupInfoPanelListeners() {
+            // Закрытие панели по клику на оверлей
+            roomInfoOverlay.addEventListener('click', function(event) {
+                if (event.target === roomInfoOverlay) {
+                    hideRoomInfoPanel();
+                }
+            });
+
+            closeInfoPanelBtn.addEventListener('click', hideRoomInfoPanel);
+            
+            setAsStartBtn.addEventListener('click', function() {
+                if (selectedRoomId) {
+                    fromSelect.value = selectedRoomId;
+                    const selectedLocation = locations.find(loc => loc.id === selectedRoomId);
+                    showStatus(`Начало маршрута установлено: ${selectedLocation ? selectedLocation.name : 'Неизвестный объект'}`, 'info');
+                    hideRoomInfoPanel();
+                }
+            });
+
+            setAsEndBtn.addEventListener('click', function() {
+                if (selectedRoomId) {
+                    toSelect.value = selectedRoomId;
+                    const selectedLocation = locations.find(loc => loc.id === selectedRoomId);
+                    showStatus(`Конец маршрута установлен: ${selectedLocation ? selectedLocation.name : 'Неизвестный объект'}`, 'info');
+                    hideRoomInfoPanel();
+                }
+            });
+        }
+
+        // НОВЫЙ КОД: Показать информационную панель
+        function showRoomInfoPanel(id, name, floor) {
+            selectedRoomId = id;
+            roomInfoTitle.textContent = `${name}`;
+            roomInfoDetails.textContent = `Этаж: ${floor}`;
+            roomInfoOverlay.classList.remove('hidden');
+        }
+
+        // НОВЫЙ КОД: Скрыть информационную панель
+        function hideRoomInfoPanel() {
+            roomInfoOverlay.classList.add('hidden');
+            selectedRoomId = null;
+        }
+        // КОНЕЦ НОВОГО КОДА
+
+        // Переключение этажей
+        function showFloor(floor) {
+            currentFloor = floor;
+            
+            document.querySelectorAll('.floor-plan').forEach(f => f.classList.add('hidden'));
+            document.getElementById(`floor-${floor}`).classList.remove('hidden');
+            document.getElementById('floor-title').textContent = `${floor} этаж`;
+            
+            document.querySelectorAll('.floor-btn').forEach(btn => {
+                btn.classList.remove('bg-blue-500', 'text-white');
+                btn.classList.add('bg-gray-300', 'text-gray-700');
+            });
+            const activeBtn = document.getElementById(`floor-btn-${floor}`);
+            activeBtn.classList.remove('bg-gray-300', 'text-gray-700');
+            activeBtn.classList.add('bg-blue-500', 'text-white');
+        }
+
+        // Алгоритм A*
+        function aStar(start, end) {
+            const openSet = [start];
+            const closedSet = [];
+            const gScore = {};
+            const fScore = {};
+            const cameFrom = {};
+            
+            gScore[start] = 0;
+            fScore[start] = heuristic(navigationGraph[start], navigationGraph[end]);
+            
+            while (openSet.length > 0) {
+                let current = openSet.reduce((min, node) => 
+                    fScore[node] < fScore[min] ? node : min
+                );
+                
+                if (current === end) {
+                    return reconstructPath(cameFrom, current);
+                }
+                
+                openSet.splice(openSet.indexOf(current), 1);
+                closedSet.push(current);
+                
+                navigationGraph[current].connections.forEach(neighbor => {
+                    if (closedSet.includes(neighbor)) return;
+                    
+                    const tentativeGScore = gScore[current] + distance(navigationGraph[current], navigationGraph[neighbor]);
+                    
+                    if (!openSet.includes(neighbor)) {
+                        openSet.push(neighbor);
+                    } else if (tentativeGScore >= gScore[neighbor]) {
+                        return;
+                    }
+                    
+                    cameFrom[neighbor] = current;
+                    gScore[neighbor] = tentativeGScore;
+                    fScore[neighbor] = gScore[neighbor] + heuristic(navigationGraph[neighbor], navigationGraph[end]);
+                });
+            }
+            
+            return null;
+        }
+
+        function heuristic(node1, node2) {
+            const dx = Math.abs(node1.x - node2.x);
+            const dy = Math.abs(node1.y - node2.y);
+            const floorPenalty = Math.abs(node1.floor - node2.floor) * 500;
+            return dx + dy + floorPenalty;
+        }
+
+        function distance(node1, node2) {
+            const dx = Math.abs(node1.x - node2.x);
+            const dy = Math.abs(node1.y - node2.y);
+            const floorPenalty = node1.floor !== node2.floor ? 500 : 0;
+            return Math.sqrt(dx * dx + dy * dy) + floorPenalty;
+        }
+
+        function reconstructPath(cameFrom, current) {
+            const path = [current];
+            while (current in cameFrom) {
+                current = cameFrom[current];
+                path.unshift(current);
+            }
+            return path;
+        }
+
+        // Поиск пути
+        function findPath() {
+            resetPath();
+            
+            const from = document.getElementById('from-select').value;
+            const to = document.getElementById('to-select').value;
+            
+            if (!from || !to) {
+                showStatus('Пожалуйста, выберите начальную и конечную точки', 'error');
+                return;
+            }
+            
+            if (from === to) {
+                showStatus('Вы уже находитесь в пункте назначения', 'warning');
+                return;
+            }
+            
+            const path = aStar(from, to);
+            
+            if (!path) {
+                showStatus('Путь не найден', 'error');
+                return;
+            }
+            
+            animatePath(path);
+            
+            const startRoom = document.getElementById(from);
+            const endRoom = document.getElementById(to);
+            if (startRoom) startRoom.classList.add('start');
+            if (endRoom) endRoom.classList.add('end');
+            
+            const fromName = locations.find(l => l.id === from).name;
+            const toName = locations.find(l => l.id === to).name;
+            showStatus(`Маршрут построен: ${fromName} → ${toName}`, 'success');
+        }
+
+        // Анимация пути
+        async function animatePath(path) {
+            const segmentsByFloor = {};
+            
+            for (let i = 0; i < path.length; i++) {
+                const node = navigationGraph[path[i]];
+                if (!node || node.floor === undefined) {
+                    console.error(`Узел ${path[i]} не найден или не имеет свойства floor.`);
+                    continue;
+                }
+                const floor = node.floor;
+                
+                if (!segmentsByFloor[floor]) {
+                    segmentsByFloor[floor] = [];
+                }
+                segmentsByFloor[floor].push(node);
+            }
+            
+            const sortedFloors = Object.keys(segmentsByFloor).map(Number).sort((a, b) => a - b);
+            
+            for (const floor of sortedFloors) {
+                showFloor(floor);
+                await drawPathOnFloor(floor, segmentsByFloor[floor]);
+                
+                if (sortedFloors.indexOf(floor) < sortedFloors.length - 1) {
+                    await sleep(10); // 3 секунды анимации + 1 секунда на осмысление
+                }
+            }
+        }
+
+        // Отрисовка пути на этаже
+        function drawPathOnFloor(floor, nodes) {
+            return new Promise((resolve) => {
+                const pathElement = document.getElementById(`path-${floor}`);
+                const points = nodes.map(n => `${n.x},${n.y}`).join(' ');
+                pathElement.setAttribute('points', points);
+                
+                pathElement.classList.remove('path-animated');
+                void pathElement.offsetWidth;
+                pathElement.classList.add('path-animated');
+                
+                setTimeout(resolve, 3000);
+            });
+        }
+
+        // Сброс пути
+        function resetPath() {
+            document.querySelectorAll('.room, .stairs, .elevator').forEach(item => {
+                item.classList.remove('start', 'end');
+            });
+            
+            document.querySelectorAll('.path').forEach(path => {
+                path.setAttribute('points', '');
+                path.classList.remove('path-animated');
+            });
+            
+            hideStatus();
+        }
+
+        // Показать статус
+        function showStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.classList.remove('hidden', 'bg-blue-50', 'bg-green-50', 'bg-red-50', 'bg-yellow-50',
+                                   'text-blue-700', 'text-green-700', 'text-red-700', 'text-yellow-700');
+            
+            switch(type) {
+                case 'success':
+                    status.classList.add('bg-green-50', 'text-green-700');
+                    break;
+                case 'error':
+                    status.classList.add('bg-red-50', 'text-red-700');
+                    break;
+                case 'warning':
+                    status.classList.add('bg-yellow-50', 'text-yellow-700');
+                    break;
+                default:
+                    status.classList.add('bg-blue-50', 'text-blue-700');
+            }
+        }
+
+        // Скрыть статус
+        function hideStatus() {
+            document.getElementById('status').classList.add('hidden');
+        }
+
+        // Вспомогательная функция для задержки
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // Запуск при загрузке страницы
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
